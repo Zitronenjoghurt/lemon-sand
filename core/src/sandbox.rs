@@ -1,4 +1,5 @@
-use crate::cell::{Cell, CellType};
+use crate::cell::{Cell, CellMovement};
+use crate::reactions::REACTION_TABLE;
 
 pub struct Sandbox {
     cells: Vec<Cell>,
@@ -63,7 +64,8 @@ impl Sandbox {
                 if self.updated[i] {
                     continue;
                 }
-                self.update_cell(x, y);
+                self.try_reactions(x, y);
+                self.update_movement(x, y);
             }
         }
     }
@@ -83,59 +85,123 @@ impl Sandbox {
 
 // Cell Updates
 impl Sandbox {
-    fn update_cell(&mut self, x: isize, y: isize) {
+    fn try_reactions(&mut self, x: isize, y: isize) {
         let Some(cell) = self.get(x, y) else { return };
-        match cell.get_type() {
-            CellType::Empty => {}
-            CellType::Sand => self.update_sand(x, y, cell),
-            CellType::Water => self.update_water(x, y, cell),
+
+        const NEIGHBORS: [(isize, isize); 4] = [(0, 1), (0, -1), (1, 0), (-1, 0)];
+
+        for (dx, dy) in NEIGHBORS {
+            let nx = x + dx;
+            let ny = y + dy;
+
+            let Some(neighbor) = self.get(nx, ny) else {
+                continue;
+            };
+
+            if let Some(reactions) =
+                REACTION_TABLE.get_reactions(cell.get_type(), neighbor.get_type())
+            {
+                for reaction in reactions {
+                    if fastrand::f32() > reaction.probability {
+                        continue;
+                    }
+
+                    if let Some(cond) = reaction.condition
+                        && !cond(&cell, &neighbor)
+                    {
+                        continue;
+                    }
+
+                    if let Some(new_type) = reaction.products.0 {
+                        self.set(x, y, Cell::new(new_type));
+                        if let Some(i) = self.coords_to_index(x, y) {
+                            self.updated[i] = true;
+                        }
+                    } else {
+                        self.set(x, y, Cell::default());
+                    }
+
+                    if let Some(new_type) = reaction.products.1 {
+                        self.set(nx, ny, Cell::new(new_type));
+                        if let Some(i) = self.coords_to_index(nx, ny) {
+                            self.updated[i] = true;
+                        }
+                    } else {
+                        self.set(nx, ny, Cell::default());
+                    }
+
+                    return;
+                }
+            }
         }
     }
 
-    fn update_sand(&mut self, x: isize, y: isize, cell: Cell) {
-        self.update_gravity(x, y, cell);
+    fn update_movement(&mut self, x: isize, y: isize) {
+        let Some(cell) = self.get(x, y) else { return };
+
+        match cell.movement() {
+            CellMovement::None => {}
+            CellMovement::Powder => self.move_powder(x, y, cell),
+            CellMovement::Liquid => self.move_liquid(x, y, cell),
+            CellMovement::Gas => self.move_gas(x, y, cell),
+        }
     }
 
-    fn update_water(&mut self, x: isize, y: isize, cell: Cell) {
-        self.update_liquid(x, y, cell);
-    }
-
-    fn update_liquid(&mut self, x: isize, y: isize, cell: Cell) {
+    fn move_powder(&mut self, x: isize, y: isize, cell: Cell) {
         let d = cell.density();
         let target = if self.can_displace(x, y + 1, d) {
             (x, y + 1)
-        } else if fastrand::bool() {
-            if self.can_displace(x - 1, y, d) {
-                (x - 1, y)
-            } else if self.can_displace(x + 1, y, d) {
-                (x + 1, y)
-            } else {
-                (x, y)
-            }
         } else {
-            if self.can_displace(x + 1, y, d) {
-                (x + 1, y)
-            } else if self.can_displace(x - 1, y, d) {
-                (x - 1, y)
+            let (dx1, dx2) = if fastrand::bool() { (-1, 1) } else { (1, -1) };
+            if self.can_displace(x + dx1, y + 1, d) {
+                (x + dx1, y + 1)
+            } else if self.can_displace(x + dx2, y + 1, d) {
+                (x + dx2, y + 1)
             } else {
-                (x, y)
+                return;
             }
         };
-
         self.swap_cells((x, y), target);
     }
 
-    fn update_gravity(&mut self, x: isize, y: isize, cell: Cell) {
+    fn move_liquid(&mut self, x: isize, y: isize, cell: Cell) {
         let d = cell.density();
-        let target = if self.can_displace(x, y + 1, d) {
-            (x, y + 1)
-        } else if self.can_displace(x - 1, y + 1, d) {
-            (x - 1, y + 1)
-        } else if self.can_displace(x + 1, y + 1, d) {
-            (x + 1, y + 1)
-        } else {
-            (x, y)
-        };
-        self.swap_cells((x, y), target);
+
+        if self.can_displace(x, y + 1, d) {
+            self.swap_cells((x, y), (x, y + 1));
+            return;
+        }
+
+        let (dx1, dx2) = if fastrand::bool() { (-1, 1) } else { (1, -1) };
+        if self.can_displace(x + dx1, y + 1, d) {
+            self.swap_cells((x, y), (x + dx1, y + 1));
+            return;
+        }
+        if self.can_displace(x + dx2, y + 1, d) {
+            self.swap_cells((x, y), (x + dx2, y + 1));
+            return;
+        }
+
+        if self.can_displace(x + dx1, y, d) {
+            self.swap_cells((x, y), (x + dx1, y));
+        } else if self.can_displace(x + dx2, y, d) {
+            self.swap_cells((x, y), (x + dx2, y));
+        }
+    }
+
+    fn move_gas(&mut self, x: isize, y: isize, cell: Cell) {
+        let d = cell.density();
+
+        if self.can_displace(x, y - 1, d) {
+            self.swap_cells((x, y), (x, y - 1));
+            return;
+        }
+
+        let (dx1, dx2) = if fastrand::bool() { (-1, 1) } else { (1, -1) };
+        if self.can_displace(x + dx1, y, d) {
+            self.swap_cells((x, y), (x + dx1, y));
+        } else if self.can_displace(x + dx2, y, d) {
+            self.swap_cells((x, y), (x + dx2, y));
+        }
     }
 }

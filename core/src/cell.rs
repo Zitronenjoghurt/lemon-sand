@@ -4,6 +4,10 @@ pub struct Cell {
 }
 
 impl Cell {
+    pub fn new(type_: CellType) -> Self {
+        Self { type_ }
+    }
+
     pub fn get_type(&self) -> CellType {
         self.type_
     }
@@ -13,6 +17,16 @@ impl Cell {
             CellType::Empty => [0, 0, 0, 255],
             CellType::Sand => [210, 170, 109, 255],
             CellType::Water => [109, 109, 210, 255],
+            CellType::WetSand => [153, 125, 81, 255],
+        }
+    }
+
+    pub fn movement(&self) -> CellMovement {
+        match self.get_type() {
+            CellType::Empty => CellMovement::None,
+            CellType::Sand => CellMovement::Powder,
+            CellType::Water => CellMovement::Liquid,
+            CellType::WetSand => CellMovement::Powder,
         }
     }
 
@@ -21,6 +35,7 @@ impl Cell {
             CellType::Empty => 0,
             CellType::Sand => 10,
             CellType::Water => 1,
+            CellType::WetSand => 15,
         }
     }
 
@@ -41,10 +56,20 @@ impl Cell {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum CellType {
     #[default]
     Empty,
     Sand,
     Water,
+    WetSand,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub enum CellMovement {
+    #[default]
+    None,
+    Powder,
+    Liquid,
+    Gas,
 }
