@@ -41,8 +41,8 @@ impl App {
 
     fn place(&mut self, x: isize, y: isize) {
         match self.place_mode {
-            PlaceMode::Sand => self.sandbox.set(x, y, Cell::sand()),
-            PlaceMode::Water => self.sandbox.set(x, y, Cell::water()),
+            PlaceMode::Sand => self.sandbox.place(x, y, Cell::sand()),
+            PlaceMode::Water => self.sandbox.place(x, y, Cell::water()),
         }
     }
 }

@@ -1,11 +1,15 @@
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Cell {
     type_: CellType,
+    pub last_updated: u8,
 }
 
 impl Cell {
     pub fn new(type_: CellType) -> Self {
-        Self { type_ }
+        Self {
+            type_,
+            last_updated: 0,
+        }
     }
 
     pub fn get_type(&self) -> CellType {
@@ -46,12 +50,14 @@ impl Cell {
     pub fn sand() -> Self {
         Self {
             type_: CellType::Sand,
+            ..Default::default()
         }
     }
 
     pub fn water() -> Self {
         Self {
             type_: CellType::Water,
+            ..Default::default()
         }
     }
 }
