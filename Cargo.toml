@@ -1,0 +1,6 @@
+[workspace]
+members = ["app", "core"]
+resolver = "3"
+
+[workspace.dependencies]
+lemon-sand-core = { path = "core" }
