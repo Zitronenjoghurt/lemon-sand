@@ -6,5 +6,6 @@ edition = "2024"
 [dependencies]
 lemon-sand-core = { workspace = true }
 pixels = "0.15.0"
+tracing = "0.1.44"
 tracing-subscriber = "0.3.22"
 winit = "0.30.12"

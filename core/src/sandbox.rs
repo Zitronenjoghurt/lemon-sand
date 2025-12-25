@@ -36,6 +36,10 @@ impl Sandbox {
         self.coords_to_index(x, y).map(|i| self.cells[i])
     }
 
+    fn get_mut(&mut self, x: isize, y: isize) -> Option<&mut Cell> {
+        self.coords_to_index(x, y).map(|i| &mut self.cells[i])
+    }
+
     fn can_displace(&self, cell: Cell, to: (isize, isize)) -> bool {
         let Some(to) = self.get(to.0, to.1) else {
             return false;
@@ -57,7 +61,7 @@ impl Sandbox {
         self.cells.swap(i, j);
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[tracing::instrument(skip_all)]
     pub fn update(&mut self) {
         self.update_counter = self.update_counter.wrapping_add(1);
         for y in (0..self.height as isize).rev() {
@@ -97,10 +101,15 @@ impl Sandbox {
             return;
         }
 
-        self.update_movement(cell, x, y);
+        self.update_moisture(x, y);
+        self.update_movement(x, y);
     }
 
-    fn update_movement(&mut self, cell: Cell, x: isize, y: isize) {
+    fn update_movement(&mut self, x: isize, y: isize) {
+        let Some(cell) = self.get(x, y) else {
+            return;
+        };
+
         match cell.movement() {
             CellMovement::None | CellMovement::Gas => {}
             CellMovement::Powder => self.move_powder(cell, x, y),
@@ -145,5 +154,85 @@ impl Sandbox {
         } else if self.can_displace(cell, (x + dx2, y)) {
             self.swap_cells((x, y), (x + dx2, y));
         }
+    }
+
+    fn update_moisture(&mut self, x: isize, y: isize) {
+        let Some(source) = self.get(x, y) else { return };
+        if source.moisture < source.moisture_capacity() {
+            return;
+        }
+
+        let (dx1, dx2) = if fastrand::bool() { (-1, 1) } else { (1, -1) };
+        let down_candidates = if fastrand::bool() {
+            [(x, y + 1), (x + dx1, y + 1), (x + dx2, y + 1)]
+        } else {
+            [(x + dx1, y + 1), (x, y + 1), (x + dx2, y + 1)]
+        };
+
+        self.try_spread_moisture(x, y, &down_candidates, 1.0);
+
+        let side_up_candidates = if fastrand::bool() {
+            [
+                (x + dx1, y),
+                (x + dx2, y),
+                (x, y - 1),
+                (x + dx1, y - 1),
+                (x + dx2, y - 1),
+            ]
+        } else {
+            [
+                (x, y - 1),
+                (x + dx1, y - 1),
+                (x + dx2, y - 1),
+                (x + dx1, y),
+                (x + dx2, y),
+            ]
+        };
+
+        self.try_spread_moisture(x, y, &side_up_candidates, 1.0);
+    }
+
+    fn try_spread_moisture(
+        &mut self,
+        x: isize,
+        y: isize,
+        candidates: &[(isize, isize)],
+        efficiency: f32,
+    ) -> bool {
+        let Some(source) = self.get(x, y) else {
+            return false;
+        };
+
+        let Some(&(tx, ty)) = candidates.iter().find(|&&(tx, ty)| {
+            self.get(tx, ty)
+                .map(|t| {
+                    source.is_water()
+                        || (t.moisture < source.moisture && t.moisture_accept_potential() > 0.0)
+                })
+                .unwrap_or(false)
+        }) else {
+            return false;
+        };
+
+        let Some(target) = self.get(tx, ty) else {
+            return false;
+        };
+
+        let diffuse = source.moisture_diffuse_potential() * efficiency;
+        let accept = target.moisture_accept_potential();
+        let transfer = diffuse.min(accept);
+
+        if let Some(target) = self.get_mut(tx, ty) {
+            target.moisture += transfer;
+        }
+
+        if let Some(source) = self.get_mut(x, y) {
+            source.moisture -= transfer;
+            if source.is_water() && source.moisture <= 0.05 {
+                self.place(x, y, Cell::default());
+            }
+        }
+
+        true
     }
 }

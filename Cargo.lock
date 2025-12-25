@@ -669,6 +669,7 @@ version = "0.1.0"
 dependencies = [
  "lemon-sand-core",
  "pixels",
+ "tracing",
  "tracing-subscriber",
  "winit",
 ]
