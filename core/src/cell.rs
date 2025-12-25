@@ -22,9 +22,21 @@ impl Cell {
         match self.type_ {
             CellType::Empty => [0, 0, 0, 255],
             CellType::Sand => [
-                lerp_u8(210, 153, self.moisture / self.moisture_capacity()),
-                lerp_u8(170, 125, self.moisture / self.moisture_capacity()),
-                lerp_u8(109, 81, self.moisture / self.moisture_capacity()),
+                lerp_u8(
+                    210,
+                    153,
+                    self.moisture / self.property_capacity(CellProperty::Moisture),
+                ),
+                lerp_u8(
+                    170,
+                    125,
+                    self.moisture / self.property_capacity(CellProperty::Moisture),
+                ),
+                lerp_u8(
+                    109,
+                    81,
+                    self.moisture / self.property_capacity(CellProperty::Moisture),
+                ),
                 255,
             ],
             CellType::Water => [109, 109, 210, 255],
@@ -47,52 +59,98 @@ impl Cell {
         }
     }
 
-    /// How much moisture a cell can hold before it starts to propagate it.
-    pub fn moisture_capacity(&self) -> f32 {
-        match self.get_type() {
-            CellType::Empty => 0.0,
-            CellType::Sand => 2.0,
-            CellType::Water => 0.0,
+    pub fn get_property(&self, property: CellProperty) -> f32 {
+        match property {
+            CellProperty::Moisture => self.moisture,
         }
     }
 
-    /// How fast moisture can propagate from/to a cell.
-    pub fn moisture_diffusion_rate(&self) -> f32 {
-        match self.get_type() {
-            CellType::Empty => 0.0,
-            CellType::Sand => 0.025,
-            CellType::Water => 1.0,
+    pub fn set_property(&mut self, property: CellProperty, value: f32) {
+        match property {
+            CellProperty::Moisture => self.moisture = value,
         }
     }
 
-    /// How much moisture can be removed from a cell right now.
-    pub fn moisture_diffuse_potential(&self) -> f32 {
-        if self.moisture == 0.0 {
+    /// How much of a property a cell can hold.
+    pub fn property_capacity(&self, property: CellProperty) -> f32 {
+        match property {
+            CellProperty::Moisture => match self.get_type() {
+                CellType::Empty => 0.0,
+                CellType::Sand => 1.5,
+                CellType::Water => 0.0,
+            },
+        }
+    }
+
+    /// How much of a property a cell wants to hold before propagating excess.
+    pub fn property_min_saturation(&self, property: CellProperty) -> f32 {
+        match property {
+            CellProperty::Moisture => match self.get_type() {
+                CellType::Empty => 0.0,
+                CellType::Sand => 0.5,
+                CellType::Water => 0.0,
+            },
+        }
+    }
+
+    /// How fast the property can propagate out of a cell.
+    pub fn property_diffusion_rate(&self, property: CellProperty) -> f32 {
+        match property {
+            CellProperty::Moisture => match self.get_type() {
+                CellType::Empty => 0.0,
+                CellType::Sand => 0.005,
+                CellType::Water => 1.0,
+            },
+        }
+    }
+
+    /// How fast the property can propagate into a cell.
+    pub fn property_accept_rate(&self, property: CellProperty) -> f32 {
+        match property {
+            CellProperty::Moisture => match self.get_type() {
+                CellType::Empty => 0.0,
+                CellType::Sand => 0.025,
+                CellType::Water => 0.0,
+            },
+        }
+    }
+
+    /// How much of the property can be removed from this cell right now.
+    pub fn property_diffuse_potential(&self, property: CellProperty) -> f32 {
+        let value = self.get_property(property);
+
+        if value == 0.0 {
             return 0.0;
         }
 
-        if self.moisture > self.moisture_diffusion_rate() {
-            self.moisture_diffusion_rate()
+        let diffusion_rate = self.property_diffusion_rate(property);
+        if value > diffusion_rate {
+            diffusion_rate
         } else {
             self.moisture
         }
     }
 
-    /// How much moisture can be added to a cell right now.
-    pub fn moisture_accept_potential(&self) -> f32 {
-        if self.moisture_capacity() == 0.0 {
-            return 0.0;
-        }
+    /// How much of the property can be added to this cell right now.
+    pub fn property_accept_potential(&self, property: CellProperty) -> f32 {
+        let value = self.get_property(property);
 
-        let raw_potential = self.moisture_capacity() - self.moisture;
+        let raw_potential = self.property_capacity(property) - value;
         if raw_potential <= 0.0 {
             return 0.0;
         }
 
-        if raw_potential > self.moisture_diffusion_rate() {
-            self.moisture_diffusion_rate()
+        let accept_rate = self.property_accept_rate(property);
+        if raw_potential > accept_rate {
+            accept_rate
         } else {
             raw_potential
+        }
+    }
+
+    pub fn is_pure_source(&self, property: CellProperty) -> bool {
+        match property {
+            CellProperty::Moisture => matches!(self.get_type(), CellType::Water),
         }
     }
 
@@ -138,6 +196,11 @@ pub enum CellMovement {
     Powder,
     Liquid,
     Gas,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CellProperty {
+    Moisture,
 }
 
 fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {

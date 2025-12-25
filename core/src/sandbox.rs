@@ -1,4 +1,4 @@
-use crate::cell::{Cell, CellMovement};
+use crate::cell::{Cell, CellMovement, CellProperty};
 
 pub struct Sandbox {
     cells: Vec<Cell>,
@@ -101,7 +101,7 @@ impl Sandbox {
             return;
         }
 
-        self.update_moisture(x, y);
+        self.update_property(x, y, CellProperty::Moisture);
         self.update_movement(x, y);
     }
 
@@ -156,58 +156,51 @@ impl Sandbox {
         }
     }
 
-    fn update_moisture(&mut self, x: isize, y: isize) {
+    fn update_property(&mut self, x: isize, y: isize, property: CellProperty) {
         let Some(source) = self.get(x, y) else { return };
-        if source.moisture < source.moisture_capacity() {
+        if source.is_empty() {
             return;
         }
 
-        let (dx1, dx2) = if fastrand::bool() { (-1, 1) } else { (1, -1) };
-        let down_candidates = if fastrand::bool() {
-            [(x, y + 1), (x + dx1, y + 1), (x + dx2, y + 1)]
-        } else {
-            [(x + dx1, y + 1), (x, y + 1), (x + dx2, y + 1)]
-        };
+        if source.get_property(property) < source.property_min_saturation(property) {
+            return;
+        }
 
-        self.try_spread_moisture(x, y, &down_candidates, 1.0);
+        let mut candidates = [
+            (x, y + 1),
+            (x - 1, y + 1),
+            (x + 1, y + 1),
+            (x - 1, y),
+            (x + 1, y),
+            (x, y - 1),
+            (x - 1, y - 1),
+            (x + 1, y - 1),
+        ];
 
-        let side_up_candidates = if fastrand::bool() {
-            [
-                (x + dx1, y),
-                (x + dx2, y),
-                (x, y - 1),
-                (x + dx1, y - 1),
-                (x + dx2, y - 1),
-            ]
-        } else {
-            [
-                (x, y - 1),
-                (x + dx1, y - 1),
-                (x + dx2, y - 1),
-                (x + dx1, y),
-                (x + dx2, y),
-            ]
-        };
-
-        self.try_spread_moisture(x, y, &side_up_candidates, 1.0);
+        fastrand::shuffle(&mut candidates);
+        self.try_spread_property(x, y, &candidates, property);
     }
 
-    fn try_spread_moisture(
+    fn try_spread_property(
         &mut self,
         x: isize,
         y: isize,
         candidates: &[(isize, isize)],
-        efficiency: f32,
+        property: CellProperty,
     ) -> bool {
         let Some(source) = self.get(x, y) else {
             return false;
         };
 
+        let source_value = source.get_property(property);
+        let source_is_pure = source.is_pure_source(property);
+
         let Some(&(tx, ty)) = candidates.iter().find(|&&(tx, ty)| {
             self.get(tx, ty)
                 .map(|t| {
-                    source.is_water()
-                        || (t.moisture < source.moisture && t.moisture_accept_potential() > 0.0)
+                    !t.is_empty() && source_is_pure
+                        || (t.get_property(property) < source_value
+                            && t.property_accept_potential(property) > 0.0)
                 })
                 .unwrap_or(false)
         }) else {
@@ -218,21 +211,28 @@ impl Sandbox {
             return false;
         };
 
-        let diffuse = source.moisture_diffuse_potential() * efficiency;
-        let accept = target.moisture_accept_potential();
+        let diffuse = source.property_diffuse_potential(property);
+        let accept = target.property_accept_potential(property);
         let transfer = diffuse.min(accept);
 
         if let Some(target) = self.get_mut(tx, ty) {
-            target.moisture += transfer;
+            target.set_property(property, target.get_property(property) + transfer);
         }
 
         if let Some(source) = self.get_mut(x, y) {
-            source.moisture -= transfer;
-            if source.is_water() && source.moisture <= 0.05 {
-                self.place(x, y, Cell::default());
-            }
+            source.set_property(property, source.get_property(property) - transfer);
         }
 
+        self.check_depletion(x, y, property);
+
         true
+    }
+
+    fn check_depletion(&mut self, x: isize, y: isize, property: CellProperty) {
+        let Some(cell) = self.get(x, y) else { return };
+
+        if cell.is_pure_source(property) && cell.get_property(property) <= 0.05 {
+            self.place(x, y, Cell::default());
+        }
     }
 }
