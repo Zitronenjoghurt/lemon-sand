@@ -24,6 +24,7 @@ pub struct App {
     cursor_pos: PhysicalPosition<f64>,
     cursor_pressed: bool,
     place_mode: PlaceMode,
+    place_radius: u8,
 }
 
 impl App {
@@ -36,13 +37,34 @@ impl App {
             cursor_pos: PhysicalPosition::default(),
             cursor_pressed: false,
             place_mode: PlaceMode::default(),
+            place_radius: 0,
         }
     }
 
     fn place(&mut self, x: isize, y: isize) {
-        match self.place_mode {
-            PlaceMode::Sand => self.sandbox.place(x, y, Cell::sand()),
-            PlaceMode::Water => self.sandbox.place(x, y, Cell::water()),
+        let cell = match self.place_mode {
+            PlaceMode::Sand => Cell::sand(),
+            PlaceMode::Water => Cell::water(),
+        };
+
+        let r = self.place_radius as isize;
+        for dy in -r..=r {
+            for dx in -r..=r {
+                if dx * dx + dy * dy <= r * r {
+                    self.sandbox.place(x + dx, y + dy, cell);
+                }
+            }
+        }
+    }
+
+    fn cursor_coordinates(&self) -> Option<(isize, isize)> {
+        if let Some(pixels) = &self.pixels
+            && let Ok((x, y)) =
+                pixels.window_pos_to_pixel((self.cursor_pos.x as f32, self.cursor_pos.y as f32))
+        {
+            Some((x as isize, y as isize))
+        } else {
+            None
         }
     }
 }
@@ -109,20 +131,29 @@ impl ApplicationHandler for App {
                     KeyCode::Digit1 => self.place_mode = PlaceMode::Sand,
                     KeyCode::Digit2 => self.place_mode = PlaceMode::Water,
                     KeyCode::Space => self.paused = !self.paused,
+                    KeyCode::ArrowUp => self.place_radius = self.place_radius.saturating_add(1),
+                    KeyCode::ArrowDown => self.place_radius = self.place_radius.saturating_sub(1),
                     _ => {}
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_pos = position;
             }
-            WindowEvent::MouseInput { state, button, .. } => {
-                if button == MouseButton::Left {
-                    match state {
-                        ElementState::Pressed => self.cursor_pressed = true,
-                        ElementState::Released => self.cursor_pressed = false,
+            WindowEvent::MouseInput { state, button, .. } => match button {
+                MouseButton::Left => match state {
+                    ElementState::Pressed => self.cursor_pressed = true,
+                    ElementState::Released => self.cursor_pressed = false,
+                },
+                MouseButton::Right => {
+                    if state == ElementState::Pressed
+                        && let Some((x, y)) = self.cursor_coordinates()
+                        && let Some(cell) = self.sandbox.get(x, y)
+                    {
+                        tracing::info!("Cell at {x} {y} => {cell:#?}",);
                     }
                 }
-            }
+                _ => {}
+            },
             WindowEvent::Resized(size) => {
                 if let Some(pixels) = &mut self.pixels
                     && size.width > 0
@@ -137,11 +168,9 @@ impl ApplicationHandler for App {
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         if self.cursor_pressed
-            && let Some(pixels) = &self.pixels
-            && let Ok((x, y)) =
-                pixels.window_pos_to_pixel((self.cursor_pos.x as f32, self.cursor_pos.y as f32))
+            && let Some((x, y)) = self.cursor_coordinates()
         {
-            self.place(x as isize, y as isize);
+            self.place(x, y);
         }
 
         if !self.paused {

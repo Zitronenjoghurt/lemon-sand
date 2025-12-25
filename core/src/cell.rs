@@ -21,20 +21,21 @@ impl Cell {
     pub fn color_rgba(&self) -> [u8; 4] {
         match self.type_ {
             CellType::Empty => [0, 0, 0, 255],
+
             CellType::Sand => [
                 lerp_u8(
-                    210,
-                    153,
+                    245,
+                    195,
                     self.moisture / self.property_capacity(CellProperty::Moisture),
                 ),
                 lerp_u8(
-                    170,
-                    125,
+                    237,
+                    174,
                     self.moisture / self.property_capacity(CellProperty::Moisture),
                 ),
                 lerp_u8(
-                    109,
-                    81,
+                    190,
+                    142,
                     self.moisture / self.property_capacity(CellProperty::Moisture),
                 ),
                 255,
@@ -98,7 +99,7 @@ impl Cell {
         match property {
             CellProperty::Moisture => match self.get_type() {
                 CellType::Empty => 0.0,
-                CellType::Sand => 0.005,
+                CellType::Sand => 0.01,
                 CellType::Water => 1.0,
             },
         }
@@ -109,7 +110,7 @@ impl Cell {
         match property {
             CellProperty::Moisture => match self.get_type() {
                 CellType::Empty => 0.0,
-                CellType::Sand => 0.025,
+                CellType::Sand => 0.05,
                 CellType::Water => 0.0,
             },
         }

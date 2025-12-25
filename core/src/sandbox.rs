@@ -32,7 +32,7 @@ impl Sandbox {
         Some((y * self.width as isize + x) as usize)
     }
 
-    fn get(&self, x: isize, y: isize) -> Option<Cell> {
+    pub fn get(&self, x: isize, y: isize) -> Option<Cell> {
         self.coords_to_index(x, y).map(|i| self.cells[i])
     }
 
