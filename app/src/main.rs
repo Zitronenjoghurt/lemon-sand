@@ -5,8 +5,8 @@ use winit::event_loop::{ControlFlow, EventLoop};
 
 mod app;
 
-const WIDTH: usize = 320;
-const HEIGHT: usize = 180;
+const WIDTH: usize = 640;
+const HEIGHT: usize = 360;
 
 fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt()

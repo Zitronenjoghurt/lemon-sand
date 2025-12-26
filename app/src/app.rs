@@ -74,8 +74,8 @@ impl ApplicationHandler for App {
         let window_attrs = Window::default_attributes()
             .with_title("Lemon Sand")
             .with_inner_size(LogicalSize::new(
-                self.sandbox.width() as f64 * 5.0,
-                self.sandbox.height() as f64 * 5.0,
+                self.sandbox.width() as f64 * 3.0,
+                self.sandbox.height() as f64 * 3.0,
             ))
             .with_min_inner_size(LogicalSize::new(
                 self.sandbox.width() as f64,

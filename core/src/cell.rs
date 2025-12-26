@@ -1,6 +1,8 @@
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Cell {
     type_: CellType,
+    pub vx: f32,
+    pub vy: f32,
     pub moisture: f32,
     pub last_updated: u8,
 }
@@ -9,6 +11,8 @@ impl Cell {
     pub fn new(type_: CellType) -> Self {
         Self {
             type_,
+            vx: 0.0,
+            vy: 0.0,
             moisture: type_.inherent_wetness(),
             last_updated: 0,
         }
@@ -57,6 +61,37 @@ impl Cell {
             CellType::Empty => 0,
             CellType::Sand => 10,
             CellType::Water => 1,
+        }
+    }
+
+    pub fn gravity_factor(&self) -> f32 {
+        match self.get_type() {
+            CellType::Empty => 0.0,
+            CellType::Sand => 1.0,
+            CellType::Water => 1.0,
+        }
+    }
+
+    pub fn slide_speed_factor(&self) -> f32 {
+        match self.get_type() {
+            CellType::Empty => 0.0,
+            CellType::Sand => (0.8 - self.moisture * 0.6),
+            CellType::Water => 1.0,
+        }
+    }
+
+    /// Horizontal impulse when blocked (liquids seeking level)
+    pub fn spread_impulse(&self) -> f32 {
+        match self.get_type() {
+            CellType::Empty => 0.0,
+            CellType::Sand => {
+                if self.moisture > 0.2 {
+                    0.0
+                } else {
+                    0.01
+                }
+            }
+            CellType::Water => 5.0,
         }
     }
 

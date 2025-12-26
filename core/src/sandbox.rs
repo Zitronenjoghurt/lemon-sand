@@ -4,6 +4,8 @@ pub struct Sandbox {
     cells: Vec<Cell>,
     width: usize,
     height: usize,
+    gravity: f32,
+    max_velocity: f32,
     update_counter: u8,
 }
 
@@ -13,6 +15,8 @@ impl Sandbox {
             cells: vec![Cell::default(); width * height],
             width,
             height,
+            gravity: 0.3,
+            max_velocity: 8.0,
             update_counter: 0,
         }
     }
@@ -106,53 +110,118 @@ impl Sandbox {
     }
 
     fn update_movement(&mut self, x: isize, y: isize) {
-        let Some(cell) = self.get(x, y) else {
-            return;
-        };
+        let Some(cell) = self.get(x, y) else { return };
 
         match cell.movement() {
-            CellMovement::None | CellMovement::Gas => {}
-            CellMovement::Powder => self.move_powder(cell, x, y),
-            CellMovement::Liquid => self.move_liquid(cell, x, y),
+            CellMovement::None => {}
+            CellMovement::Powder => self.move_with_velocity(x, y),
+            CellMovement::Liquid => self.move_with_velocity(x, y),
+            CellMovement::Gas => {}
         }
     }
 
-    fn move_powder(&mut self, cell: Cell, x: isize, y: isize) {
-        let target = if self.can_displace(cell, (x, y + 1)) {
-            (x, y + 1)
-        } else {
-            let (dx1, dx2) = if fastrand::bool() { (-1, 1) } else { (1, -1) };
-            if self.can_displace(cell, (x + dx1, y + 1)) {
-                (x + dx1, y + 1)
-            } else if self.can_displace(cell, (x + dx2, y + 1)) {
-                (x + dx2, y + 1)
+    fn move_with_velocity(&mut self, x: isize, y: isize) {
+        let Some(mut cell) = self.get(x, y) else {
+            return;
+        };
+
+        cell.vy = (cell.vy + self.gravity * cell.gravity_factor())
+            .clamp(-self.max_velocity, self.max_velocity);
+
+        let mut current = (x, y);
+
+        let vy_dir = cell.vy.signum() as isize;
+        for _ in 0..cell.vy.abs().floor() as usize {
+            let next = (current.0, current.1 + vy_dir);
+            if self.can_displace(cell, next) {
+                self.swap_cells(current, next);
+                current = next;
             } else {
-                return;
+                self.push_slide_down(&mut cell, current, vy_dir);
+                self.push_blocker_vertical(current, next, cell.vy * 0.5);
+                cell.vy *= 0.5;
+                break;
             }
-        };
-        self.swap_cells((x, y), target);
+        }
+
+        let vx_dir = cell.vx.signum() as isize;
+        for _ in 0..cell.vx.abs().floor() as usize {
+            let next = (current.0 + vx_dir, current.1);
+            if self.can_displace(cell, next) {
+                self.swap_cells(current, next);
+                current = next;
+            } else {
+                self.push_blocker_horizontal(current, cell.vx * 0.5);
+                cell.vx *= 0.5;
+                break;
+            }
+        }
+
+        let surface_friction = self
+            .get(current.0, current.1 + 1)
+            .map(|below| below.slide_speed_factor())
+            .unwrap_or(0.5);
+        cell.vx *= surface_friction;
+
+        if let Some(c) = self.get_mut(current.0, current.1) {
+            c.vx = cell.vx;
+            c.vy = cell.vy;
+        }
     }
 
-    fn move_liquid(&mut self, cell: Cell, x: isize, y: isize) {
-        if self.can_displace(cell, (x, y + 1)) {
-            self.swap_cells((x, y), (x, y + 1));
+    fn push_slide_down(&self, cell: &mut Cell, pos: (isize, isize), vy_dir: isize) {
+        let Some(blocker) = self.get(pos.0, pos.1 + vy_dir) else {
+            return;
+        };
+
+        let slide = cell.slide_speed_factor() * blocker.slide_speed_factor();
+        let transfer = cell.vy.abs() * slide;
+
+        if let Some(dir) = self.find_open_direction(*cell, pos, vy_dir) {
+            cell.vx += transfer * dir as f32;
             return;
         }
 
-        let (dx1, dx2) = if fastrand::bool() { (-1, 1) } else { (1, -1) };
-        if self.can_displace(cell, (x + dx1, y + 1)) {
-            self.swap_cells((x, y), (x + dx1, y + 1));
+        if cell.spread_impulse() > 0.0
+            && let Some(dir) = self.find_open_direction(*cell, pos, 0)
+        {
+            cell.vx += cell.spread_impulse() * dir as f32;
+        }
+    }
+
+    fn push_blocker_vertical(&mut self, _from: (isize, isize), to: (isize, isize), impulse: f32) {
+        let Some(blocker) = self.get_mut(to.0, to.1) else {
             return;
         };
-        if self.can_displace(cell, (x + dx2, y + 1)) {
-            self.swap_cells((x, y), (x + dx2, y + 1));
+        if blocker.is_empty() {
+            return;
+        }
+
+        blocker.vy += impulse;
+        blocker.vx += impulse * 0.2 * if fastrand::bool() { 1.0 } else { -1.0 };
+    }
+
+    fn push_blocker_horizontal(&mut self, to: (isize, isize), impulse: f32) {
+        let Some(blocker) = self.get_mut(to.0, to.1) else {
             return;
         };
 
-        if self.can_displace(cell, (x + dx1, y)) {
-            self.swap_cells((x, y), (x + dx1, y));
-        } else if self.can_displace(cell, (x + dx2, y)) {
-            self.swap_cells((x, y), (x + dx2, y));
+        if blocker.is_empty() {
+            return;
+        }
+
+        blocker.vx += impulse;
+    }
+
+    fn find_open_direction(&self, cell: Cell, pos: (isize, isize), dy: isize) -> Option<isize> {
+        let left = self.can_displace(cell, (pos.0 - 1, pos.1 + dy));
+        let right = self.can_displace(cell, (pos.0 + 1, pos.1 + dy));
+
+        match (left, right) {
+            (true, true) => Some(if fastrand::bool() { 1 } else { -1 }),
+            (true, false) => Some(-1),
+            (false, true) => Some(1),
+            (false, false) => None,
         }
     }
 
